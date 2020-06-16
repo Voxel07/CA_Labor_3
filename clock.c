@@ -7,7 +7,7 @@
     Author:   W.Zimmermann, Jan 30, 2020
     Modified: 
 */
-
+#include <mc9s12dp256.h>    
 #include <stdio.h>
 
 #include "clock.h"
@@ -26,6 +26,8 @@ CLOCKEVENT clockEvent = NOCLOCKEVENT;
 static char hrs = 0, mins = 0, secs = 0;
 static int uptime = 0;
 static int ticks = 0;
+static int TheRealTime = 1;
+static int buttonPressed = 0;
 
 // ****************************************************************************
 //  Initialize clock module
@@ -51,7 +53,13 @@ void tick10ms(void)
     dcf77Event = sampleSignalDCF77(uptime);     // Sample the DCF77 signal
 
     //--- Add code here, which shall be executed every 10ms -------------------
-    // ???
+    if((PTH & 0x08) && (!buttonPressed)){
+        buttonPressed = 1;
+    }
+    else if(!(PTH & 0x08) && buttonPressed){
+        TheRealTime = TheRealTime ^ 0x01;
+        buttonPressed = 0;
+    }
     //--- End of user code
 }
 
@@ -93,7 +101,21 @@ void setClock(char hours, char minutes, char seconds)
 // Returns:     -
 void displayTimeClock(void)
 {   char uhrzeit[32] = "00:00:00";
-    (void) sprintf(uhrzeit, "%02d:%02d:%02d", hrs, mins, secs );
+    if(TheRealTime)
+    {
+        (void) sprintf(uhrzeit, "%02d:%02d:%02d DE", hrs, mins, secs );
+    }
+    else
+    {
+        if(hrs <6)
+        {
+            (void) sprintf(uhrzeit, "%02d:%02d:%02d US", hrs+18, mins, secs );   
+        }
+        else
+        {
+            (void) sprintf(uhrzeit, "%02d:%02d:%02d US", hrs-6, mins, secs ); 
+        }
+    }
     writeLine(uhrzeit, 0);
 }
 

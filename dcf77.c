@@ -4,7 +4,7 @@
     (C) 2020 J. Friedrich, W. Zimmermann 
     Hochschule Esslingen
 
-    Author:   W.Zimmermann, Jan 30, 2020
+    Author:   W.Zimmermann, May 06, 2020
     Modified: 
 */
 
@@ -28,38 +28,43 @@
 
 // Global variable holding the last DCF77 event
 DCF77EVENT dcf77Event = NODCF77EVENT;
-//Golbale Variable für den Wochentag
-WOCHENTAG wochenTag;
 
 // Modul internal global variables
-static int  dcf77Year=2025, dcf77Month=1, dcf77Day=1, dcf77Hour=0, dcf77Minute=0 ,dec77Wochentag = 0;       //dcf77 Date and time as integer values
-static int startSignal = 0;
+static int  dcf77Year=2025, dcf77Month=1, dcf77Day=1, dcf77Hour=0, dcf77Minute=0, dcf77wochenTag=0;       //dcf77 Date and time as integer values
+
+const char* WOCHENTAG[] = {"MON","TUE","WEN","THU","FRI","SAT","SUN"};
 
 // Prototypes of functions simulation DCF77 signals, when testing without
 // a DCF77 radio signal receiver
-void initializePortSim(void);                   // Use instead of initializePort() for testing
-char readPortSim(void);                         // Use instead of readPort() for testing
+void initializePortSim(void);                   // Use instead of initializePort() for simulator testing
+char readPortSim(void);                         // Use instead of readPort() for simulator testing
 
 // ****************************************************************************
 // Initialize the hardware port on which the DCF77 signal is connected as input
 // Parameter:   -
 // Returns:     -
-void initializePort(void)
-{
-    asm MOVB #$00,DDRH                              // setze Data Direction Register H als Eingang
-}
+//
+// NOT USED IN THE CORONA EDITION
+//
+//void initializePort(void)
+//{
+// --- Add your code here ----------------------------------------------------
+// --- ??? --- ??? --- ??? --- ??? --- ??? --- ??? --- ??? --- ??? --- ??? ---
+//}
 
 // ****************************************************************************
 // Read the hardware port on which the DCF77 signal is connected as input
 // Parameter:   -
 // Returns:     0 if signal is Low, >0 if signal is High
-char readPort(void)
-{
-
-    //Ich glaube das brauchen wir nicht.
-
-    return -1;
-}
+//
+// NOT USED IN THE CORONA EDITION
+//
+//char readPort(void)
+//{
+// --- Add your code here ----------------------------------------------------
+// --- ??? --- ??? --- ??? --- ??? --- ??? --- ??? --- ??? --- ??? --- ??? ---
+//    return -1;
+//}
 
 // ****************************************************************************
 //  Initialize DCF77 module
@@ -82,7 +87,7 @@ void initDCF77(void)
 void displayDateDcf77(void)
 {   char datum[32];
 
-    (void) sprintf(datum, "%02d.%02d.%04d", dcf77Day, dcf77Month, dcf77Year);
+    (void) sprintf(datum, "%s - %02d.%02d.%04d",WOCHENTAG[dcf77wochenTag-1], dcf77Day, dcf77Month, dcf77Year);
     writeLine(datum, 1);
 }
 
@@ -93,79 +98,60 @@ void displayDateDcf77(void)
 //  Returns:    DCF77 event, i.e. second pulse, 0 or 1 data bit or minute marker
 DCF77EVENT sampleSignalDCF77(int currentTime)
 {   DCF77EVENT event = NODCF77EVENT;
+   
+    static char oldState = 0;   //Wert der letzen Flanke
+    char currentState = 0;      //Wert der aktuellen Flanke
+    static int startTime = 0;   //Zeitpunkt der fallenden Flanke
+    int diffTime = 0;           //Verstrichene Zeit zwischen currentTime und  
     
 #ifdef SIMULATOR
-    currentSignal = readPortSim();
+    currentState = readPortSim();			// Sample simulated DCF77 signal
 #else
-    currentSignal = readPort();
-#endif    
+    currentState = readPort();				// Sample DCF77 signal
+#endif   
 
-
-    static char letzteFlanke = 0;       //speichert den Wert der letzen Flanke
-    char aktuelleFlanke = 0;     //speichert den Wert der aktuellen Flanke
-    static int ersteMin = 0;            //für den ersten Durchlauf
-    unsigned int tPulse = 0, tLow = 0;                   //Speichert den aktuellen Wert
-    static unsigned int tPulseSpeicher = 0, tLowSpeicher = 0;   //Speichert den Wert für den nächsten durchlauf
-    
-    
-    aktuelleFlanke = readPortSim();  
-
-    if (letzteFlanke == aktuelleFlanke)                 //keine Flankenänderung
+    if (oldState == currentState)           //keine Flankenänderung
     {
-      event = NODCF77EVENT;   
+        event = NODCF77EVENT;   
     } 
-    else if((letzteFlanke == 1) && (aktuelleFlanke==0)) //fallende Flanke
+    else if ((oldState == 1)&&(currentState == 0))   //fallende Flanke
     {
-        tPulseSpeicher = currentTime;
+        setLED(0x02);   //LED 2 einschalten
+        diffTime = currentTime - startTime;
 
-        if(tPulse != 0){ //Sinnvoll ?
-            // Berechnung einer Periode
-            tPulseSpeicher = currentTime - tPulseSpeicher;  //Speichern für den nächsten Durchgang
-            tPulse = tPulseSpeicher + tLow;                 //Speicherun um damit zu arbeiten
-        }
-
-        if((tPulse >= 900) && (tPulse <= 1100))         //nach einer Sekunde 
+        if((diffTime >= 900) && (diffTime <= 1100))         //nach einer Sekunde 
         {
             event = VALIDSECOND;
         }
-        else if((tPulse >= 1900) && (tPulse <= 2100))   //nach zwei Sekunde 
+        else if((diffTime >= 1900) && (diffTime <= 2100))   //nach zwei Sekunde 
         {
-            if (ersteMin==0){
-                ersteMin = 1;
-            }
-            //LED anmachen
             event = VALIDMINUTE;
         }
-        else
+        else    //Fehlerfall
         {
-            event = INVALID;
-            //LED ausmachen
+            event = INVALID;       
         }
-        
-
+        startTime = currentTime;
     }
-    else if((letzteFlanke == 1) && (aktuelleFlanke==0)) //steigende Flanke
-    {
-        if(tLowSpeicher != 0){
-            //Berechnung der Low Zeit
-            tLowSpeicher = currentTime - tLowSpeicher;  //Speichern für den nächsten Durchgang
-            tLow = tLowSpeicher;                        //Speicherun um damit zu arbeiten
-        }
-        if((tLow >= 70) && (tLow <= 130))               //100 ms = low = 0
+    else    //steigende Flanke
+    {   
+        clrLED(0x02);
+        diffTime = currentTime - startTime;
+        if((diffTime >= 70) && (diffTime <= 130))               //100 ms = low = 0
         {	                 
-			event =  VALIDZERO;	
-		} 
-        else if((tLow >= 170) && (tLow <= 230))         //200 ms = high = 1
+            event =  VALIDZERO;	
+        } 
+        else if((diffTime >= 170) && (diffTime <= 230))         //200 ms = high = 1
         {	     
-			event =   VALIDONE;
-		} 
-        else 
+            event =   VALIDONE;
+        } 
+        else    	//Fehlerfall 
         {
-		    event =  INVALID;
-		}		     
+            event =  INVALID;
+        }		     
     }
 
-    letzteFlanke = aktuelleFlanke;  //für den nächsten Durchlauf speichern
+    oldState = currentState;    //für den nächsten Durchlauf speichern
     return event;
 }
 
@@ -176,72 +162,94 @@ DCF77EVENT sampleSignalDCF77(int currentTime)
 // Returns:     -
 void processEventsDCF77(DCF77EVENT event)
 {
+    static char signal[59] = {0};   //dc77 Signal über eine Minute
+    static int counter = 0;         //aktuelle Position
+    int error = 0;                  //kaputt
+    int paritaet = 0;
+    int sum = 0;
+    int i = 0;
+    switch(event) 
+    {     
+        /*LED Setzen fehlt noch*/ 
+        case VALIDSECOND:  	
+            counter++; 
+        break;	  	        
+        case VALIDMINUTE:
+            if((!error)&&(counter == 58))
+            {
+              /*Zeit zusammen bauen*/               
+                //  Minuten
+                dcf77Minute = signal[21] + signal[22]*2 + signal[23]*4 + signal[24]*8+ signal[25]*10 + signal[26]*20 + signal[27]*40;			
+                //  Stunden
+                dcf77Hour = signal[29] + signal[30]*2 + signal[31]*4 + signal[32]*8 + signal[33]*10	+ signal[34]*20;	  		  	
+                //  Tag
+                dcf77Day = signal[36] + signal[37]*2 + signal[38]*4 + signal[39]*8 + signal[40]*10 + signal[41]*20;	  	
+                //  Monat
+                dcf77Month = signal[45] + signal[46]*2 + signal[47]*4 + signal[48]*8 + signal[49]*10;		
+                //  Jahr
+                dcf77Year = signal[50] + signal[51]*2 + signal[52]*4 + signal[53]*8	+ signal[54]*10	+ signal[55]*20+ signal[56]*40	+ signal[57]*80 +2000; //+2000 fÃ¼r Jahr 2000
+                //Wochentag 
+                dcf77wochenTag = signal[42] + signal[43]*2 + signal[44]*4;
 
-    static char signal[59]={0};
-    static int counter = 0;
-    int Fehler = 0;
+                //Daten Plausibel ?
+                if ((dcf77Hour < 0) || (dcf77Hour > 23))    {error = 1;}
+                if ((dcf77Minute < 0) || (dcf77Minute > 59))    {error = 1;}
+                if ((dcf77Day < 0) || (dcf77Day > 31))  {error = 1;}
+                if ((dcf77wochenTag <1)||(dcf77wochenTag >7))  {error = 1;}
+                if ((dcf77Month < 0) || (dcf77Month > 12))  {error = 1;}
+                // Paritätsprüfung
+               
+                //Bit 28
+                for(i = 21; i <=28; i++){
+                    sum += signal[i];
+                }
+                paritaet = sum % 2;
+                //Bit 35
+                for(i = 29; i <=35; i++){
+                    sum += signal[i];
+                }
+                paritaet += sum % 2;                
+                //Bit 58
+                for(i = 36; i <=58; i++){
+                     sum += signal[i];
+                }
+                paritaet += sum %2;
 
-    if(startSignal == 1) 
-    {
-        if(counter<59) {
-            switch(event) 
-            {     
-                /*LED Setzen fehlt noch*/ 
-                case VALIDSECOND:  		  	        
-                case VALIDMINUTE:  
-                    signal[counter]= ?;               
-                    counter++; 
-                break;                           
-                case VALIDZERO:                  
-                    signal[counter]=0;               
-                    counter++;  		                
-                break;                              
-                case VALIDONE:                 
-                    signal[counter]=?;              
-                    counter++;                     
-                break;                             
-                case INVALID:                      
-                    startSignal=0;                   
-                    counter=0; 
-                    Fehler=1;                      
-                break;                            
-                default:                        
-                    break;                          
-            }  	
-        }
-        else /*Wenn eine Komplette Periode erhalten wrude.*/
-        {
-            /*Zeit zusammen bauen*/
-            
-            //  Minuten
-            dcf77Minute = signal[21] + signal[22]*2 + signal[23]*4 + signal[24]*8+ signal[25]*10 + signal[26]*20 + signal[27]*40;			
-            //  Stunden
-            dcf77Hour = signal[29] + signal[30]*2 + signal[31]*4 + signal[32]*8 + signal[33]*10	+ signal[34]*20;	  		  	
-            //  Tag
-            dcf77Day = signal[36] + signal[37]*2 + signal[38]*4 + signal[39]*8 + signal[40]*10 + signal[41]*20;	  	
-            //  Monat
-            dcf77Month = signal[45] + signal[46]*2 + signal[47]*4 + signal[48]*8 + signal[49]*10;		
-            //  Jahr
-            dcf77Year = signal[50] + signal[51]*2 + signal[52]*4 + signal[53]*8	+ signal[54]*10	+ signal[55]*20+ signal[56]*40	+ signal[57]*80 +2000; //+2000 für Jahr 2000
-            
-            //Wochentag fehlt noch
-            dec77Wochentag = signal[42] + signal[43]*2 + signal[44]*4;
+                if(paritaet>0||error) //Fehlerfall
+                { 
+                    clrLED (0x08);      //LED B3
+                }
+                else    //Passt alles
+                {
+                    setLED (0x08);      //LED B3
+                    displayDateDcf77();
+                    setClock((char)dcf77Day,(char)dcf77Minute,(char)0);
+                }
+            }
+            else
+            {
+                clrLED(0x04);       //LED B2
+                clrLED(0x08);       //LED B3
+            }
+            counter = 0;
+           
+        break;                           
+        case VALIDZERO:                  
+            signal[counter]= 0 ;                       
+        break;                              
+        case VALIDONE:                 
+            signal[counter]=1;              
+        break;                             
+        case INVALID:                      
+            error=1; 
+            setLED(0x04);                                        
+        break;   
+        case NODCF77EVENT:
 
-            wochenTag = dec77Wochentag; //Enum wochenTag den aktuellen Wert zuweisen
-
-            /* Parität prüfen */
-
-            
-            /*Werte prüfen*/
-            if ((dcf77Hour < 0) || (dcf77Hour > 23))    {Fehler = 1;}
-            if ((dcf77Minute < 0) || (dcf77Minute > 59))    {Fehler = 1;}
-            if ((dcf77Day < 0) || (dcf77Day > 31))  {Fehler = 1;}
-            if ((wochenTag <1)||(wochenTag >7))  {Fehler = 1;}
-            if ((dcf77Month < 0) || (dcf77Month > 12))  {Fehler = 1;}
-        }
-    }
-        	
-
-
+        break;                         
+        default:   
+             error=1;                      
+        break;                          
+    }  	
 }
 
